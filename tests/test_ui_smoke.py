@@ -102,3 +102,14 @@ def test_device_found_by_discovery_counts_as_up():
     text = w.hosts.item(0).text()
     assert "up" in text and "1a:22:bb:b5:ec:bb" in text and "Mobile?" in text
     assert w.device("phone")["device_type"] == "Mobile"       # also what the export gets
+
+
+def test_vendor_shown_and_exported():
+    from portscout import scanner
+    w = MainWindow()
+    w.vendors = {"989DB2": "Example Router, Inc."}
+    w.results["r"][53] = scanner.PortResult("r", "192.168.1.1", 53, "open", "domain")
+    w.on_device("r", "98:9d:b2:ef:ab:0f", "")
+    w.update_view()
+    assert "Example Router, Inc." in w.hosts.item(0).text()
+    assert w.device("r")["vendor"] == "Example Router, Inc."

@@ -7,6 +7,7 @@ import csv
 import ctypes
 import json
 import sys
+import threading
 from collections import defaultdict
 from dataclasses import asdict
 
@@ -148,6 +149,8 @@ def card(title: str, *widgets: QWidget) -> QFrame:
 
 
 class MainWindow(QWidget):
+    vendors_done = Signal(object)   # vendor count, or the error from the download thread
+
     def __init__(self):
         super().__init__(objectName="root")
         self.c = DARK if is_dark() else LIGHT
@@ -156,6 +159,7 @@ class MainWindow(QWidget):
         self.resize(1180, 760)
         self.results: dict[str, dict[int, scanner.PortResult]] = defaultdict(dict)
         self.devices: dict[str, tuple[str, str]] = {}   # host -> (MAC, name), answered ARP
+        self.vendors = monitor.load_vendors()           # empty until the user downloads it
         self.done = self.total = 0
         self.thread: QThread | None = None
         self.worker: ScanWorker | None = None
@@ -220,6 +224,12 @@ class MainWindow(QWidget):
         self.risk_note.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.export_btn = QPushButton("Export…", objectName="tool", enabled=False)
         self.export_btn.clicked.connect(self.export)
+        self.vendor_btn = QPushButton(objectName="tool")
+        self.vendor_btn.setToolTip("Downloads IEEE's public list of MAC address prefixes "
+                                   "(about 4 MB) to show who made each device on your network.")
+        self.vendor_btn.clicked.connect(self.get_vendors)
+        self.vendors_done.connect(self.on_vendors)
+        self._vendor_btn_text()
 
         table_box = QWidget()
         tcol = QVBoxLayout(table_box)
@@ -238,6 +248,7 @@ class MainWindow(QWidget):
         bar.addStretch(1)
         bar.addWidget(self.show_all)
         bar.addSpacing(12)
+        bar.addWidget(self.vendor_btn)
         bar.addWidget(self.export_btn)
         right.addLayout(bar)
         right.addWidget(split, 1)
@@ -366,11 +377,37 @@ class MainWindow(QWidget):
     def device(self, host: str) -> dict:
         """MAC, local name and guessed type, for devices found on this PC's own network."""
         if host not in self.devices:
-            return {"mac": "", "device_name": "", "device_type": ""}
+            return {"mac": "", "vendor": "", "device_name": "", "device_type": ""}
         mac, name = self.devices[host]
         open_ports = {p for p, r in self.results.get(host, {}).items() if r.state == "open"}
-        return {"mac": mac, "device_name": name,
+        return {"mac": mac, "vendor": monitor.vendor(self.vendors, mac), "device_name": name,
                 "device_type": scanner.device_type(mac, name, open_ports)}
+
+    # ------------------------------------------------------------- MAC vendor list
+
+    def _vendor_btn_text(self):
+        self.vendor_btn.setText("Update vendor list" if self.vendors else "Get vendor list")
+
+    def get_vendors(self):
+        self.vendor_btn.setEnabled(False)
+        self._status("Downloading the MAC vendor list from IEEE (about 4 MB)…")
+
+        def work():
+            try:
+                self.vendors_done.emit(monitor.download_vendors())
+            except (OSError, ValueError) as e:   # no internet, IEEE down, or not the list
+                self.vendors_done.emit(e)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def on_vendors(self, result):
+        self.vendor_btn.setEnabled(True)
+        if isinstance(result, Exception):
+            return self._status(f"Could not get the vendor list: {result}", "error")
+        self.vendors = monitor.load_vendors()
+        self._vendor_btn_text()
+        self.update_view()
+        self._status(f"Vendor list saved: {result:,} manufacturers.", "ok")
 
     def on_finished(self):
         self.refresh.stop()
@@ -407,11 +444,11 @@ class MainWindow(QWidget):
             label = host if host == address else f"{host}  ({address})"
             d = self.device(host)
             kind = f"  ·  {d['device_type']}?" if d["device_type"] else ""
-            extra = "".join(f" · {d[k]}" for k in ("device_name", "mac") if d[k])
+            extra = "".join(f" · {d[k]}" for k in ("vendor", "device_name", "mac") if d[k])
             item.setText(f"{label}{kind}\n{'up' if self.is_up(host) else 'no response'} · "
                          f"{open_n} open{extra}")
-            item.setToolTip("Device type is a best guess from the device's name, open ports "
-                            "and MAC address." if kind else "")
+            item.setToolTip(item.text() + ("\n\nDevice type is a best guess from the device's "
+                                           "name, open ports and MAC address." if kind else ""))
             item.setForeground(QColor(self.c["text" if self.is_up(host) else "muted"]))
         if current is None and self.hosts.count():
             self.hosts.setCurrentRow(0)

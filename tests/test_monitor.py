@@ -64,3 +64,26 @@ def test_site_groups_rotating_addresses():
     assert monitor.site("MyPC", "::1") == "mypc"
     assert monitor.site("", "160.79.104.10") == "160.79.104.0/24"
     assert monitor.site(None, "2001:db8:1:2::5") == "2001:db8:1::/48"
+
+
+def test_vendor_list_parse_save_and_lookup(monkeypatch):
+    import pytest
+    rows = [f"MA-L,{i:06X},Maker {i},Somewhere" for i in range(12000)]
+    csv_text = "Registry,Assignment,Organization Name,Organization Address\n" + "\n".join(
+        rows + ['MA-L,98:9D:B2,Bad,x', 'MA-L,989DB2,"Example  Router, Inc.",Addr'])
+    vendors = monitor.parse_vendors(csv_text)
+    assert vendors["989DB2"] == "Example Router, Inc." and "98:9D:B2" not in vendors
+    with pytest.raises(ValueError):
+        monitor.parse_vendors("<html>Access denied</html>")      # error page, not the list
+
+    class Response:
+        def __init__(self, *_a, **_k): pass
+        def read(self): return csv_text.encode()
+        def __enter__(self): return self
+        def __exit__(self, *_): pass
+    monkeypatch.setattr(monitor.urllib.request, "urlopen", Response)
+    assert monitor.download_vendors() == len(vendors)
+    loaded = monitor.load_vendors()
+    assert monitor.vendor(loaded, "98:9d:b2:ef:ab:0f") == "Example Router, Inc."
+    assert monitor.vendor(loaded, "1a:22:bb:b5:ec:bb") == "private MAC"
+    assert monitor.vendor(loaded, "fc:ff:ff:00:00:01") == ""                   # unknown maker

@@ -1,6 +1,7 @@
 """Live view of this computer's own connections: program, ports, destination name,
 country, plus a local SQLite history (timeline) and per-program destination memory
-(new-destination alerts). No admin rights, no drivers, nothing sent anywhere."""
+(new-destination alerts), and MAC vendor names. No admin rights, no drivers, nothing sent
+anywhere; the only download is the vendor list, and only when the user asks for it."""
 from __future__ import annotations
 
 import bisect
@@ -11,10 +12,12 @@ import ipaddress
 import os
 import socket
 import sqlite3
+import string
 import subprocess
 import sys
 import threading
 import time
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +33,54 @@ def data_dir() -> Path:
     d = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "PortScout"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+# ------------------------------------------------------------------ MAC vendors
+
+# IEEE's public registry of MAC prefixes. Downloaded per computer, only when the user clicks
+# for it: it has no explicit open licence, so it is not bundled.
+# shortcut: MA-L (24-bit prefixes) only; add mam.csv / oui36.csv if small vendors show blank.
+OUI_URL = "https://standards-oui.ieee.org/oui/oui.csv"
+
+
+def vendor_file() -> Path:
+    return data_dir() / "mac-vendors.tsv"
+
+
+def parse_vendors(text: str) -> dict[str, str]:
+    """IEEE oui.csv -> {"AABBCC": "Vendor name"}; rejects anything that isn't that file."""
+    rows = {}
+    for row in csv.reader(text.splitlines()):
+        if len(row) >= 3 and len(row[1]) == 6 and all(ch in string.hexdigits for ch in row[1]):
+            rows[row[1].upper()] = " ".join(row[2].split())[:80]
+    if len(rows) < 10000:   # the real list has ~38,000; anything far smaller is an error page
+        raise ValueError("The download did not look like the IEEE vendor list.")
+    return rows
+
+
+def download_vendors() -> int:
+    """Fetch the list from IEEE and save it for load_vendors(). Returns the vendor count."""
+    req = urllib.request.Request(OUI_URL, headers={"User-Agent": "PortScout"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        rows = parse_vendors(r.read().decode("utf-8", "replace"))
+    tmp = vendor_file().with_suffix(".tmp")
+    tmp.write_text("".join(f"{k}\t{v}\n" for k, v in rows.items()), encoding="utf-8")
+    tmp.replace(vendor_file())   # never leave a half-written list behind
+    return len(rows)
+
+
+def load_vendors() -> dict[str, str]:
+    try:
+        lines = vendor_file().read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}   # not downloaded yet
+    return dict(line.split("\t", 1) for line in lines if "\t" in line)
+
+
+def vendor(vendors: dict[str, str], mac: str) -> str:
+    if mac and int(mac[:2], 16) & 2:
+        return "private MAC"   # randomised by the device (phones by default): no maker to find
+    return vendors.get(mac.replace(":", "")[:6].upper(), "")
 
 
 @dataclass

@@ -23,7 +23,9 @@ Port states, as in Nmap:
 2. Open ports: 8008/8009 Google Cast (Android TV, Chromecast), 62078 (iPhone/iPad), Windows file sharing or Remote Desktop (PC), 9100/631 (printer), 53 DNS (router). Scan **Top 100** or include these ports for the best result.
 3. A randomised MAC address, which phones use by default, gives **Mobile**.
 
-With no clue, the type is left blank. The MAC address, device name and type are also included in the export.
+With no clue, the type is left blank. The MAC address, vendor, device name and type are also included in the export.
+
+**MAC vendor names:** click **Get vendor list** (next to Export) to download IEEE's public list of MAC address prefixes, about 4 MB, so each device shows who made it, for example a router's or TV's manufacturer. It is downloaded only when you click, saved in `%LOCALAPPDATA%\PortScout\mac-vendors.tsv`, and used offline after that; click **Update vendor list** to refresh it. It is not included in this repository because the IEEE list has no explicit open licence. Devices using a randomised MAC address (most phones) show **private MAC**, because their address does not identify the maker.
 
 The app warns you before it scans any public internet address.
 
