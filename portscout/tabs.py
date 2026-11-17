@@ -34,7 +34,9 @@ def table(headers: list[str], stretch: int = -1) -> QTableWidget:
     t.setSelectionBehavior(QAbstractItemView.SelectRows)
     head = t.horizontalHeader()
     head.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)   # line up with the left-aligned cells
-    head.setSectionResizeMode(QHeaderView.ResizeToContents)
+    # Not ResizeToContents: that re-measures every row on each setItem, so filling n rows costs
+    # n^2 and a scan's few hundred connections froze the UI for ~40 s. fill() sizes once instead.
+    head.setSectionResizeMode(QHeaderView.Interactive)
     head.setSectionResizeMode(stretch % len(headers), QHeaderView.Stretch)
     return t
 
@@ -44,6 +46,7 @@ def fill(t: QTableWidget, rows: list[list[str]]):
     for i, row in enumerate(rows):
         for j, text in enumerate(row):
             t.setItem(i, j, QTableWidgetItem(str(text)))
+    t.resizeColumnsToContents()   # once per refresh; Qt samples at most 1000 rows
 
 
 def country_label(cc: str) -> str:

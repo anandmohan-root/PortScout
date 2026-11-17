@@ -435,6 +435,7 @@ class MainWindow(QWidget):
                     cell.setForeground(QColor(risk_colors[r.severity]))
                     cell.setToolTip(r.risk)
                 self.table.setItem(i, col, cell)
+        self.table.resizeColumnsToContents()
         self.risk_note.setText("\n".join(f"Port {r.port} ({r.severity}): {r.risk}"
                                          for r in rows if r.severity))
         hidden = defaultdict(int)
@@ -466,8 +467,9 @@ class MainWindow(QWidget):
     def closeEvent(self, e):
         if self.worker:
             self.worker.stop = True
-            self.thread.quit()
-            self.thread.wait(5000)
+            self.hide()   # feels instant; probes in flight need up to timeout x tries to end
+            self.thread.quit()   # ends the thread's event loop once the scan returns
+            self.thread.wait()   # a capped wait let Qt destroy the still-running thread (crash)
         self.connections.timer.stop()
         self.connections.names.close()
         super().closeEvent(e)
