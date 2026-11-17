@@ -99,6 +99,7 @@ def stylesheet(c: dict) -> str:
 class ScanWorker(QObject):
     """Resolves targets and runs the asyncio scan off the UI thread."""
     result = Signal(object)        # scanner.PortResult
+    device = Signal(str, str)      # host, MAC address: found on this PC's own network
     finished = Signal()
 
     def __init__(self, targets: list[tuple[str, str]], ports: list[int], timing: str):
@@ -107,9 +108,12 @@ class ScanWorker(QObject):
         self.stop = False
 
     def run(self):
+        async def both():
+            await asyncio.gather(scanner.discover(self.targets, self.device.emit),
+                                 scanner.scan(self.targets, self.ports, self.timing,
+                                              self.result.emit, cancelled=lambda: self.stop))
         try:
-            asyncio.run(scanner.scan(self.targets, self.ports, self.timing, self.result.emit,
-                                     cancelled=lambda: self.stop))
+            asyncio.run(both())
         finally:
             self.finished.emit()
 
@@ -148,6 +152,7 @@ class MainWindow(QWidget):
         self.setWindowTitle(APP_NAME)
         self.resize(1180, 760)
         self.results: dict[str, dict[int, scanner.PortResult]] = defaultdict(dict)
+        self.macs: dict[str, str] = {}   # host -> MAC, for devices that answered ARP
         self.done = self.total = 0
         self.thread: QThread | None = None
         self.worker: ScanWorker | None = None
@@ -315,6 +320,7 @@ class MainWindow(QWidget):
             return
 
         self.results.clear()
+        self.macs.clear()
         self.hosts.clear()
         self.table.setRowCount(0)
         self.not_shown.clear()
@@ -333,6 +339,7 @@ class MainWindow(QWidget):
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.result.connect(self.on_result)
+        self.worker.device.connect(self.on_device)
         self.worker.finished.connect(self.on_finished)
         self.thread.start()
         self.refresh.start()
@@ -347,6 +354,12 @@ class MainWindow(QWidget):
         self.results[r.host][r.port] = r
         self.done += 1
 
+    def on_device(self, host: str, mac: str):
+        self.macs[host] = mac
+
+    def is_up(self, host: str) -> bool:
+        return host in self.macs or _is_up(self.results.get(host, {}))
+
     def on_finished(self):
         self.refresh.stop()
         self.thread.quit()
@@ -359,7 +372,7 @@ class MainWindow(QWidget):
         self.scan_btn.show()
         self.export_btn.setEnabled(bool(self.results))
         open_n = sum(r.state == "open" for h in self.results.values() for r in h.values())
-        up = sum(_is_up(h) for h in self.results.values())
+        up = sum(self.is_up(h) for h in self.results)
         self._status(f"{'Stopped' if stopped else 'Done'}: {up} of {len(self.results)} host(s) "
                      f"up, {open_n} open port(s).", "ok")
         self._sync_buttons()
@@ -380,8 +393,10 @@ class MainWindow(QWidget):
             open_n = sum(r.state == "open" for r in ports.values())
             address = next(iter(ports.values())).address
             label = host if host == address else f"{host}  ({address})"
-            item.setText(f"{label}\n{'up' if _is_up(ports) else 'no response'} · {open_n} open")
-            item.setForeground(QColor(self.c["text" if _is_up(ports) else "muted"]))
+            mac = f" · {self.macs[host]}" if host in self.macs else ""
+            item.setText(f"{label}\n{'up' if self.is_up(host) else 'no response'} · "
+                         f"{open_n} open{mac}")
+            item.setForeground(QColor(self.c["text" if self.is_up(host) else "muted"]))
         if current is None and self.hosts.count():
             self.hosts.setCurrentRow(0)
         else:

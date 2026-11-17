@@ -103,3 +103,25 @@ def test_retries_only_unanswered_probes(monkeypatch):
     calls = fake(OSError(10065, "host unreachable"))                  # an answer: no retry
     assert asyncio.run(scanner.probe("h", "10.0.0.1", 80, 1.0, retries=2)).state == "filtered"
     assert len(calls) == 1
+
+
+def test_discover_reports_only_local_devices_that_answer(monkeypatch):
+    asked = []
+
+    def fake_arp(address):
+        asked.append(address)
+        return "aa:bb:cc:dd:ee:01" if address == "192.168.50.7" else ""
+
+    monkeypatch.setattr(scanner, "local_networks",
+                        lambda: [scanner.ipaddress.ip_network("192.168.50.0/24")])
+    monkeypatch.setattr(scanner, "arp", fake_arp)
+    found = {}
+    targets = [("phone", "192.168.50.7"), ("off", "192.168.50.8"), ("web", "8.8.8.8"),
+               ("v6", "::1")]
+    asyncio.run(scanner.discover(targets, found.__setitem__))
+    assert found == {"phone": "aa:bb:cc:dd:ee:01"}
+    assert sorted(asked) == ["192.168.50.7", "192.168.50.8"]    # never ARPs off-network
+
+
+def test_arp_on_non_local_address_finds_nothing():
+    assert scanner.arp("192.0.2.1") == ""                        # TEST-NET-1: nobody answers

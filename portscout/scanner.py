@@ -1,4 +1,4 @@
-"""TCP connect scan engine (stdlib only).
+"""TCP connect scan engine, plus ARP device discovery on this computer's own network.
 
 Behaviour mirrors Nmap's unprivileged connect scan (-sT), as mapped with REA:
   connect succeeds          -> open
@@ -8,8 +8,10 @@ Behaviour mirrors Nmap's unprivileged connect scan (-sT), as mapped with REA:
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import ipaddress
 import socket
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 MAX_HOSTS = 256      # one /24 at most: this tool is for your own machines, not sweeps
@@ -137,6 +139,47 @@ def is_private(address: str) -> bool:
 def resolve(host: str) -> str:
     """Hostname -> IP address. Raises OSError when it cannot be resolved."""
     return socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)[0][4][0]
+
+
+def local_networks() -> list[ipaddress.IPv4Network]:
+    """IPv4 networks this computer is directly connected to (Wi-Fi, Ethernet...)."""
+    import psutil
+    return [ipaddress.ip_interface(f"{a.address}/{a.netmask}").network
+            for addrs in psutil.net_if_addrs().values() for a in addrs
+            if a.family == socket.AF_INET and a.netmask and not a.address.startswith("127.")]
+
+
+def arp(address: str) -> str:
+    """Hardware (MAC) address of a device on this computer's own network, or "" if it did not
+    answer. Uses Windows' SendARP: no admin rights, and firewalls do not block it."""
+    try:
+        send_arp = ctypes.windll.iphlpapi.SendARP
+    except AttributeError:
+        return ""   # not Windows
+    send_arp.argtypes = [ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p,
+                         ctypes.POINTER(ctypes.c_ulong)]
+    mac, size = (ctypes.c_ubyte * 8)(), ctypes.c_ulong(8)
+    dest = int.from_bytes(socket.inet_aton(address), "little")   # network byte order in memory
+    if send_arp(dest, 0, mac, ctypes.byref(size)) != 0 or not any(mac[:size.value]):
+        return ""
+    return ":".join(f"{b:02x}" for b in mac[:size.value])
+
+
+async def discover(targets: list[tuple[str, str]], on_device) -> None:
+    """Calls on_device(host, mac) for each target on this computer's own network that answers
+    ARP. Phones and PCs that silently drop every port still answer, so they count as up."""
+    nets = local_networks()
+    loop = asyncio.get_running_loop()
+
+    # An unanswered ARP blocks ~3 s; 128 at once sweeps a /24 in ~8 s (measured; 64 took ~17 s).
+    with ThreadPoolExecutor(128) as pool:
+        async def one(host, address):
+            if mac := await loop.run_in_executor(pool, arp, address):
+                on_device(host, mac)
+
+        await asyncio.gather(*(one(h, a) for h, a in targets
+                               if ipaddress.ip_address(a).version == 4
+                               and any(ipaddress.ip_address(a) in n for n in nets)))
 
 
 async def probe(host: str, address: str, port: int, timeout: float,

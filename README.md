@@ -16,6 +16,8 @@ Port states, as in Nmap:
 - **closed**: the host refused the connection.
 - **filtered**: no answer, or the host was unreachable.
 
+**Device discovery:** for targets on this computer's own network (for example `192.168.1.0/24`), PortScout also asks each address for its hardware (MAC) address, using ARP. Phones and PCs whose firewalls drop every port still answer, so they show as **up** with their MAC address, even with 0 ports answering. This needs no admin rights and only works on the local network, not across the internet. Phones with the screen off may sleep and miss it, and some routers isolate Wi-Fi devices from each other (AP or client isolation, common on guest networks). Many phones show a randomised MAC address rather than their real one.
+
 The app warns you before it scans any public internet address.
 
 **Scan only systems you own or have written permission to test.** Unauthorized scanning can be illegal.
