@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import ctypes
 import json
 import sys
 from collections import defaultdict
 from dataclasses import asdict
 
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QColor, QGuiApplication
+from PySide6.QtGui import QColor, QGuiApplication, QIcon
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QFileDialog, QFrame,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QMessageBox, QProgressBar, QPushButton, QSplitter,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QFileDialo
 from . import monitor, scanner, tabs
 
 APP_NAME = "PortScout"
+ICON = monitor.DATA / "icon.ico"   # made from icon.svg by tools/make_icon.py
 
 LIGHT = dict(bg="#F3F4F8", surface="#FFFFFF", surface2="#EEF0F5", border="#E2E5EC",
              text="#12141A", muted="#687082", accent="#5B5BF6", accent2="#9B5CF6",
@@ -100,7 +102,7 @@ def stylesheet(c: dict) -> str:
 class ScanWorker(QObject):
     """Resolves targets and runs the asyncio scan off the UI thread."""
     result = Signal(object)        # scanner.PortResult
-    device = Signal(str, str)      # host, MAC address: found on this PC's own network
+    device = Signal(str, str, str) # host, MAC, local name: found on this PC's own network
     finished = Signal()
 
     def __init__(self, targets: list[tuple[str, str]], ports: list[int], timing: str):
@@ -153,7 +155,7 @@ class MainWindow(QWidget):
         self.setWindowTitle(APP_NAME)
         self.resize(1180, 760)
         self.results: dict[str, dict[int, scanner.PortResult]] = defaultdict(dict)
-        self.macs: dict[str, str] = {}   # host -> MAC, for devices that answered ARP
+        self.devices: dict[str, tuple[str, str]] = {}   # host -> (MAC, name), answered ARP
         self.done = self.total = 0
         self.thread: QThread | None = None
         self.worker: ScanWorker | None = None
@@ -247,7 +249,14 @@ class MainWindow(QWidget):
         body.addLayout(right, 1)
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 20, 24, 20)
-        root.addWidget(title)
+        logo = QLabel()
+        logo.setPixmap(QIcon(str(ICON)).pixmap(32, 32))
+        head = QHBoxLayout()
+        head.setSpacing(10)
+        head.addWidget(logo)
+        head.addWidget(title)
+        head.addStretch(1)
+        root.addLayout(head)
         root.addWidget(badge)
         root.addSpacing(8)
         scan_tab = QWidget()
@@ -314,7 +323,7 @@ class MainWindow(QWidget):
             return
 
         self.results.clear()
-        self.macs.clear()
+        self.devices.clear()
         self.hosts.clear()
         self.table.setRowCount(0)
         self.not_shown.clear()
@@ -348,11 +357,20 @@ class MainWindow(QWidget):
         self.results[r.host][r.port] = r
         self.done += 1
 
-    def on_device(self, host: str, mac: str):
-        self.macs[host] = mac
+    def on_device(self, host: str, mac: str, name: str):
+        self.devices[host] = (mac, name)
 
     def is_up(self, host: str) -> bool:
-        return host in self.macs or _is_up(self.results.get(host, {}))
+        return host in self.devices or _is_up(self.results.get(host, {}))
+
+    def device(self, host: str) -> dict:
+        """MAC, local name and guessed type, for devices found on this PC's own network."""
+        if host not in self.devices:
+            return {"mac": "", "device_name": "", "device_type": ""}
+        mac, name = self.devices[host]
+        open_ports = {p for p, r in self.results.get(host, {}).items() if r.state == "open"}
+        return {"mac": mac, "device_name": name,
+                "device_type": scanner.device_type(mac, name, open_ports)}
 
     def on_finished(self):
         self.refresh.stop()
@@ -387,9 +405,13 @@ class MainWindow(QWidget):
             open_n = sum(r.state == "open" for r in ports.values())
             address = next(iter(ports.values())).address
             label = host if host == address else f"{host}  ({address})"
-            mac = f" · {self.macs[host]}" if host in self.macs else ""
-            item.setText(f"{label}\n{'up' if self.is_up(host) else 'no response'} · "
-                         f"{open_n} open{mac}")
+            d = self.device(host)
+            kind = f"  ·  {d['device_type']}?" if d["device_type"] else ""
+            extra = "".join(f" · {d[k]}" for k in ("device_name", "mac") if d[k])
+            item.setText(f"{label}{kind}\n{'up' if self.is_up(host) else 'no response'} · "
+                         f"{open_n} open{extra}")
+            item.setToolTip("Device type is a best guess from the device's name, open ports "
+                            "and MAC address." if kind else "")
             item.setForeground(QColor(self.c["text" if self.is_up(host) else "muted"]))
         if current is None and self.hosts.count():
             self.hosts.setCurrentRow(0)
@@ -427,7 +449,8 @@ class MainWindow(QWidget):
                                               "CSV (*.csv);;JSON (*.json)")
         if not path:
             return
-        rows = [asdict(r) for h in self.results.values() for _, r in sorted(h.items())]
+        rows = [{**asdict(r), **self.device(host)}
+                for host, h in self.results.items() for _, r in sorted(h.items())]
         try:
             with open(path, "w", newline="", encoding="utf-8") as f:
                 if path.lower().endswith(".json"):
@@ -445,6 +468,8 @@ class MainWindow(QWidget):
             self.worker.stop = True
             self.thread.quit()
             self.thread.wait(5000)
+        self.connections.timer.stop()
+        self.connections.names.close()
         super().closeEvent(e)
 
 
@@ -454,8 +479,13 @@ def _is_up(ports: dict) -> bool:
 
 
 def main():
+    try:   # own taskbar entry and icon, instead of grouping under pythonw.exe
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_NAME)
+    except AttributeError:
+        pass   # not Windows
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+    app.setWindowIcon(QIcon(str(ICON)))
     w = MainWindow()
     w.show()
     sys.exit(app.exec())

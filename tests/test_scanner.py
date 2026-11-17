@@ -115,13 +115,28 @@ def test_discover_reports_only_local_devices_that_answer(monkeypatch):
     monkeypatch.setattr(scanner, "local_networks",
                         lambda: [scanner.ipaddress.ip_network("192.168.50.0/24")])
     monkeypatch.setattr(scanner, "arp", fake_arp)
+    monkeypatch.setattr(scanner, "local_name", lambda a: "Pixel-8" if a == "192.168.50.7" else "")
     found = {}
     targets = [("phone", "192.168.50.7"), ("off", "192.168.50.8"), ("web", "8.8.8.8"),
                ("v6", "::1")]
-    asyncio.run(scanner.discover(targets, found.__setitem__))
-    assert found == {"phone": "aa:bb:cc:dd:ee:01"}
+    asyncio.run(scanner.discover(targets, lambda h, mac, name: found.__setitem__(h, (mac, name))))
+    assert found == {"phone": ("aa:bb:cc:dd:ee:01", "Pixel-8")}
     assert sorted(asked) == ["192.168.50.7", "192.168.50.8"]    # never ARPs off-network
 
 
 def test_arp_on_non_local_address_finds_nothing():
     assert scanner.arp("192.0.2.1") == ""                        # TEST-NET-1: nobody answers
+
+
+def test_device_type_guesses():
+    vendor, private = "28:df:eb:1f:9b:c2", "1a:22:bb:b5:ec:bb"
+    assert scanner.device_type(vendor, "C40LAP-3654", set()) == "Laptop / PC"
+    assert scanner.device_type(vendor, "Galaxy-S23", set()) == "Mobile"
+    assert scanner.device_type(vendor, "BRAVIA-TV.lan", {445}) == "TV / streaming"  # name first
+    assert scanner.device_type(vendor, "", {8008, 8009, 8443}) == "TV / streaming"   # Android TV
+    assert scanner.device_type(vendor, "", {62078}) == "Mobile"                      # iPhone
+    assert scanner.device_type(vendor, "", {445, 135}) == "Laptop / PC"
+    assert scanner.device_type(vendor, "", {53, 80, 443}) == "Router"
+    assert scanner.device_type(vendor, "", {9100}) == "Printer"
+    assert scanner.device_type(private, "", set()) == "Mobile"                       # private MAC
+    assert scanner.device_type(vendor, "", {80}) == ""                               # no clue

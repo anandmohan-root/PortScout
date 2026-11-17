@@ -153,6 +153,10 @@ class Names:
         except OSError:
             return ""
 
+    def close(self):
+        """Drop queued lookups so the app can exit: unanswered LAN lookups take seconds each."""
+        self._pool.shutdown(wait=False, cancel_futures=True)
+
     def name(self, ip: str) -> str | None:
         """Hostname, "" when none exists, or None while still looking it up."""
         if ip in self._dns:
@@ -164,6 +168,8 @@ class Names:
             self._pending[ip] = self._pool.submit(self._reverse, ip)
             return None
         if not job.done():
+            return None
+        if job.cancelled():
             return None
         self._cache[ip] = job.result()
         del self._pending[ip]

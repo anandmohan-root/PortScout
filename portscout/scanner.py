@@ -165,9 +165,44 @@ def arp(address: str) -> str:
     return ":".join(f"{b:02x}" for b in mac[:size.value])
 
 
+def local_name(address: str) -> str:
+    """The device's own name on the local network (DNS, else Windows NetBIOS/LLMNR), or ""."""
+    try:
+        return socket.gethostbyaddr(address)[0]
+    except OSError:
+        return ""
+
+
+# Clues for device_type(), checked in this order; first match wins.
+NAME_CLUES = [("TV / streaming", ("tv", "bravia", "chromecast", "roku", "shield", "mibox", "aft")),
+              ("Mobile", ("iphone", "ipad", "android", "galaxy", "pixel", "redmi", "oneplus", "oppo",
+                          "vivo", "realme", "poco", "moto", "phone")),
+              ("Laptop / PC", ("laptop", "lap", "desktop", "-pc", "macbook", "imac", "thinkpad",
+                               "surface", "workstation"))]
+PORT_CLUES = [("TV / streaming", {8008, 8009}),          # Google Cast: Android TV, Chromecast
+              ("Mobile", {62078}),                       # iPhone / iPad sync
+              ("Printer", {9100, 631, 515}),
+              ("Laptop / PC", {135, 139, 445, 3389, 5357}),   # Windows sharing, Remote Desktop
+              ("Router", {53})]                          # a LAN device answering DNS
+
+
+def device_type(mac: str, name: str, open_ports: set[int]) -> str:
+    """Best guess at what a device on the local network is, or "" when there is no clue."""
+    name = name.lower()
+    for kind, words in NAME_CLUES:
+        if any(w in name for w in words):
+            return kind
+    for kind, ports in PORT_CLUES:
+        if ports & open_ports:
+            return kind
+    if mac and int(mac[:2], 16) & 2:   # private (randomised) MAC: phones use one by default
+        return "Mobile"
+    return ""
+
+
 async def discover(targets: list[tuple[str, str]], on_device) -> None:
-    """Calls on_device(host, mac) for each target on this computer's own network that answers
-    ARP. Phones and PCs that silently drop every port still answer, so they count as up."""
+    """Calls on_device(host, mac, name) for each target on this computer's own network that
+    answers ARP. Phones and PCs that silently drop every port still answer, so they count as up."""
     nets = local_networks()
     loop = asyncio.get_running_loop()
 
@@ -175,7 +210,7 @@ async def discover(targets: list[tuple[str, str]], on_device) -> None:
     with ThreadPoolExecutor(128) as pool:
         async def one(host, address):
             if mac := await loop.run_in_executor(pool, arp, address):
-                on_device(host, mac)
+                on_device(host, mac, await loop.run_in_executor(pool, local_name, address))
 
         await asyncio.gather(*(one(h, a) for h, a in targets
                                if ipaddress.ip_address(a).version == 4

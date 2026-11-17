@@ -18,6 +18,13 @@ Port states, as in Nmap:
 
 **Device discovery:** for targets on this computer's own network (for example `192.168.1.0/24`), PortScout also asks each address for its hardware (MAC) address, using ARP. Phones and PCs whose firewalls drop every port still answer, so they show as **up** with their MAC address, even with 0 ports answering. This needs no admin rights and only works on the local network, not across the internet. Phones with the screen off may sleep and miss it, and some routers isolate Wi-Fi devices from each other (AP or client isolation, common on guest networks). Many phones show a randomised MAC address rather than their real one.
 
+**Device type (a best guess):** devices found this way are labelled **Mobile**, **Laptop / PC**, **TV / streaming**, **Router** or **Printer**, shown with a `?` because it is a guess. The first clue that matches wins:
+1. The device's own name on the network, for example `C40LAP-…` (laptop), `Galaxy-…` (mobile), `BRAVIA-…` (TV).
+2. Open ports: 8008/8009 Google Cast (Android TV, Chromecast), 62078 (iPhone/iPad), Windows file sharing or Remote Desktop (PC), 9100/631 (printer), 53 DNS (router). Scan **Top 100** or include these ports for the best result.
+3. A randomised MAC address, which phones use by default, gives **Mobile**.
+
+With no clue, the type is left blank. The MAC address, device name and type are also included in the export.
+
 The app warns you before it scans any public internet address.
 
 **Scan only systems you own or have written permission to test.** Unauthorized scanning can be illegal.
@@ -64,6 +71,8 @@ python -m venv .venv
 .venv\Scripts\python -m PyInstaller --noconfirm PortScout.spec
 ```
 The app is then at `dist\PortScout\PortScout.exe`.
+
+The app icon is drawn in `data\icon.svg`. After changing it, run `.venv\Scripts\python tools\make_icon.py` to regenerate `data\icon.ico`, which the window, taskbar and `.exe` use. To give a desktop shortcut the same icon, open its **Properties → Change Icon…** and pick `data\icon.ico`.
 
 ## Limits
 - A port that gives no answer is tried again (Polite 2 more times, Normal and Aggressive once), as Nmap does. Refused or unreachable ports are not retried. Hosts that drop everything therefore take longer to finish: up to the timeout times the number of tries.

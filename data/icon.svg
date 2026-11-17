@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- PortScout app icon: a radar sweep finding a device. Original artwork. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5B5BF6"/>
+      <stop offset="1" stop-color="#9B5CF6"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+  <circle cx="128" cy="128" r="84" fill="none" stroke="#fff" stroke-opacity="0.4" stroke-width="14"/>
+  <circle cx="128" cy="128" r="46" fill="none" stroke="#fff" stroke-opacity="0.6" stroke-width="14"/>
+  <path d="M128 128 L128 44 A84 84 0 0 1 196.8 79.8 Z" fill="#fff" fill-opacity="0.4"/>
+  <circle cx="128" cy="128" r="15" fill="#fff"/>
+  <circle cx="166" cy="76" r="17" fill="#fff"/>
+</svg>

@@ -97,6 +97,8 @@ def test_device_found_by_discovery_counts_as_up():
     w.results["phone"][80] = scanner.PortResult("phone", "192.168.1.40", 80, "filtered", "http")
     w.update_view()
     assert "no response" in w.hosts.item(0).text()
-    w.on_device("phone", "1a:22:bb:b5:ec:bb")
+    w.on_device("phone", "1a:22:bb:b5:ec:bb", "")
     w.update_view()
-    assert "up" in w.hosts.item(0).text() and "1a:22:bb:b5:ec:bb" in w.hosts.item(0).text()
+    text = w.hosts.item(0).text()
+    assert "up" in text and "1a:22:bb:b5:ec:bb" in text and "Mobile?" in text
+    assert w.device("phone")["device_type"] == "Mobile"       # also what the export gets
