@@ -140,3 +140,6 @@ def test_device_type_guesses():
     assert scanner.device_type(vendor, "", {9100}) == "Printer"
     assert scanner.device_type(private, "", set()) == "Mobile"                       # private MAC
     assert scanner.device_type(vendor, "", {80}) == ""                               # no clue
+    echo = {1080, 4070, 8888, 55442, 55443}            # what the Echo at .34 had open
+    assert scanner.device_type("fc:49:2d:0d:f7:95", "none.local", echo) == "Smart speaker"
+    assert scanner.device_type(vendor, "Kitchen-Echo", set()) == "Smart speaker"

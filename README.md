@@ -18,9 +18,9 @@ Port states, as in Nmap:
 
 **Device discovery:** for targets on this computer's own network (for example `192.168.1.0/24`), PortScout also asks each address for its hardware (MAC) address, using ARP. Phones and PCs whose firewalls drop every port still answer, so they show as **up** with their MAC address, even with 0 ports answering. This needs no admin rights and only works on the local network, not across the internet. Phones with the screen off may sleep and miss it, and some routers isolate Wi-Fi devices from each other (AP or client isolation, common on guest networks). Many phones show a randomised MAC address rather than their real one.
 
-**Device type (a best guess):** devices found this way are labelled **Mobile**, **Laptop / PC**, **TV / streaming**, **Router** or **Printer**, shown with a `?` because it is a guess. The first clue that matches wins:
-1. The device's own name on the network, for example `C40LAP-…` (laptop), `Galaxy-…` (mobile), `BRAVIA-…` (TV).
-2. Open ports: 8008/8009 Google Cast (Android TV, Chromecast), 62078 (iPhone/iPad), Windows file sharing or Remote Desktop (PC), 9100/631 (printer), 53 DNS (router). Scan **Top 100** or include these ports for the best result.
+**Device type (a best guess):** devices found this way are labelled **Mobile**, **Laptop / PC**, **TV / streaming**, **Smart speaker**, **Router** or **Printer**, shown with a `?` because it is a guess. The first clue that matches wins:
+1. The device's own name on the network, for example `C40LAP-…` (laptop), `Galaxy-…` (mobile), `BRAVIA-…` (TV), `Kitchen-Echo` (smart speaker).
+2. Open ports: 8008/8009 Google Cast (Android TV, Chromecast), 55442/55443 Alexa or 4070 Spotify Connect (Amazon Echo and other smart speakers), 62078 (iPhone/iPad), Windows file sharing or Remote Desktop (PC), 9100/631 (printer), 53 DNS (router). Top 100 covers most of these; for smart speakers and iPhones choose **Custom** and add `4070,55442,55443,62078`.
 3. A randomised MAC address, which phones use by default, gives **Mobile**.
 
 With no clue, the type is left blank. The MAC address, vendor, device name and type are also included in the export.

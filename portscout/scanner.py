@@ -175,11 +175,13 @@ def local_name(address: str) -> str:
 
 # Clues for device_type(), checked in this order; first match wins.
 NAME_CLUES = [("TV / streaming", ("tv", "bravia", "chromecast", "roku", "shield", "mibox", "aft")),
+              ("Smart speaker", ("echo", "alexa", "sonos", "homepod", "nest-audio", "nest-mini")),
               ("Mobile", ("iphone", "ipad", "android", "galaxy", "pixel", "redmi", "oneplus", "oppo",
                           "vivo", "realme", "poco", "moto", "phone")),
               ("Laptop / PC", ("laptop", "lap", "desktop", "-pc", "macbook", "imac", "thinkpad",
                                "surface", "workstation"))]
 PORT_CLUES = [("TV / streaming", {8008, 8009}),          # Google Cast: Android TV, Chromecast
+              ("Smart speaker", {55442, 55443, 4070}),   # Amazon Echo (Alexa); 4070 Spotify Connect
               ("Mobile", {62078}),                       # iPhone / iPad sync
               ("Printer", {9100, 631, 515}),
               ("Laptop / PC", {135, 139, 445, 3389, 5357}),   # Windows sharing, Remote Desktop
