@@ -32,6 +32,7 @@ def table(headers: list[str]) -> QTableWidget:
     t.setEditTriggers(QAbstractItemView.NoEditTriggers)
     t.setSelectionBehavior(QAbstractItemView.SelectRows)
     head = t.horizontalHeader()
+    head.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)   # line up with the left-aligned cells
     for i in range(len(headers) - 1):
         head.setSectionResizeMode(i, QHeaderView.ResizeToContents)
     head.setStretchLastSection(True)
