@@ -80,3 +80,26 @@ def test_self_connect_counts_as_closed(monkeypatch):
     monkeypatch.setattr(scanner.asyncio, "open_connection", fake_open)
     r = asyncio.run(scanner.probe("h", "127.0.0.1", 50000, 1.0))
     assert r.state == "closed"
+
+
+def test_retries_only_unanswered_probes(monkeypatch):
+    def fake(*outcomes):
+        calls = []
+
+        async def open_connection(address, port):
+            calls.append(port)
+            raise outcomes[min(len(calls), len(outcomes)) - 1]
+        monkeypatch.setattr(scanner.asyncio, "open_connection", open_connection)
+        return calls
+
+    calls = fake(asyncio.TimeoutError(), ConnectionRefusedError())   # first probe lost
+    assert asyncio.run(scanner.probe("h", "10.0.0.1", 80, 1.0, retries=1)).state == "closed"
+    assert len(calls) == 2
+
+    calls = fake(asyncio.TimeoutError())                              # never answers
+    assert asyncio.run(scanner.probe("h", "10.0.0.1", 80, 1.0, retries=2)).state == "filtered"
+    assert len(calls) == 3
+
+    calls = fake(OSError(10065, "host unreachable"))                  # an answer: no retry
+    assert asyncio.run(scanner.probe("h", "10.0.0.1", 80, 1.0, retries=2)).state == "filtered"
+    assert len(calls) == 1

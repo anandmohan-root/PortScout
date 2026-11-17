@@ -53,7 +53,7 @@ python -m venv .venv
 The app is then at `dist\PortScout\PortScout.exe`.
 
 ## Limits
-- Each port gets one probe and no retries, so a lossy network can show ports as filtered.
+- A port that gives no answer is tried again (Polite 2 more times, Normal and Aggressive once), as Nmap does. Refused or unreachable ports are not retried. Hosts that drop everything therefore take longer to finish: up to the timeout times the number of tries.
 - No SYN, UDP or OS scans; those need raw packets and the Npcap driver.
 - No service version detection beyond reading the greeting a service sends by itself.
 - Windows reports a refused connection after about 2 seconds, so timeouts are 2.5–4 s.

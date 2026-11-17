@@ -269,9 +269,10 @@ class MainWindow(QWidget):
     # ------------------------------------------------------------- helpers
 
     def _speed_hint(self):
-        limit, timeout, delay = scanner.TIMING[self.speed_group.checkedButton().text()]
+        limit, timeout, delay, retries = scanner.TIMING[self.speed_group.checkedButton().text()]
         extra = f", {delay:g} s pause after each probe" if delay else ""
-        self.speed_hint.setText(f"{limit} connections at once, {timeout:g} s timeout{extra}.")
+        self.speed_hint.setText(f"{limit} connections at once, {timeout:g} s timeout{extra}, "
+                                f"{retries} retr{'y' if retries == 1 else 'ies'} if no answer.")
 
     def _sync_buttons(self):
         self.scan_btn.setEnabled(self.authorized.isChecked() and self.thread is None)

@@ -28,10 +28,11 @@ COMMON_PORTS = [
 ]
 PRESETS = {"Top 20": COMMON_PORTS[:20], "Top 100": COMMON_PORTS, "1-1024": list(range(1, 1025))}
 
-# Nmap's -T names; values are (parallel connections, connect timeout seconds, delay between probes).
-# Timeouts stay above 2 s: Windows retries a refused connect twice and reports it after ~2 s,
-# so anything shorter turns every closed port into "filtered".
-TIMING = {"Polite": (10, 4.0, 0.4), "Normal": (200, 3.0, 0.0), "Aggressive": (500, 2.5, 0.0)}
+# Nmap's -T names; values are (parallel connections, connect timeout seconds, delay between probes,
+# retries for probes that got no answer). Timeouts stay above 2 s: Windows retries a refused
+# connect twice and reports it after ~2 s, so anything shorter turns every closed port into "filtered".
+TIMING = {"Polite": (10, 4.0, 0.4, 2), "Normal": (200, 3.0, 0.0, 1),
+          "Aggressive": (500, 2.5, 0.0, 1)}
 
 SERVICE_NAMES = {
     80: "http", 23: "telnet", 443: "https", 21: "ftp", 22: "ssh", 25: "smtp",
@@ -138,15 +139,22 @@ def resolve(host: str) -> str:
     return socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)[0][4][0]
 
 
-async def probe(host: str, address: str, port: int, timeout: float) -> PortResult:
-    state, banner = "filtered", ""
-    try:
-        reader, writer = await asyncio.wait_for(asyncio.open_connection(address, port), timeout)
-    except ConnectionRefusedError:
-        state = "closed"
-    except (asyncio.TimeoutError, OSError):
-        state = "filtered"
-    else:
+async def probe(host: str, address: str, port: int, timeout: float,
+                retries: int = 0) -> PortResult:
+    state, banner, writer = "filtered", "", None
+    for _ in range(retries + 1):
+        try:
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(address, port),
+                                                    timeout)
+            break
+        except ConnectionRefusedError:
+            state = "closed"
+            break
+        except asyncio.TimeoutError:
+            continue   # like Nmap, re-send only probes that got no answer at all (may be lost)
+        except OSError:
+            break      # unreachable and similar errors are an answer: filtered, no retry
+    if writer is not None:
         # Self-connect: a loopback scan can hit its own source port and "connect" to itself.
         # Nmap's handleConnectResult discards these; nothing is listening, so call it closed.
         state = "closed" if writer.get_extra_info("sockname")[:2] == (address, port) else "open"
@@ -169,14 +177,14 @@ async def probe(host: str, address: str, port: int, timeout: float) -> PortResul
 async def scan(targets: list[tuple[str, str]], ports: list[int], timing: str,
                on_result, cancelled=lambda: False) -> None:
     """Probe every (host, address) x port; calls on_result(PortResult) as each finishes."""
-    limit, timeout, delay = TIMING[timing]
+    limit, timeout, delay, retries = TIMING[timing]
     jobs = ((h, a, p) for h, a in targets for p in ports)   # lazy: 256 hosts x 65535 ports fits
 
     async def worker():
         for host, address, port in jobs:   # workers share one generator; asyncio is single-threaded
             if cancelled():
                 return
-            on_result(await probe(host, address, port, timeout))
+            on_result(await probe(host, address, port, timeout, retries))
             if delay:
                 await asyncio.sleep(delay)
 
