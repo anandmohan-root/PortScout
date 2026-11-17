@@ -11,11 +11,10 @@ from dataclasses import asdict
 
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QGuiApplication
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QCheckBox,
-                               QFileDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                               QListWidget, QListWidgetItem, QMessageBox, QProgressBar,
-                               QPushButton, QSplitter, QTableWidget, QTableWidgetItem,
-                               QTabWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QFileDialog, QFrame,
+                               QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+                               QMessageBox, QProgressBar, QPushButton, QSplitter,
+                               QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from . import monitor, scanner, tabs
 
@@ -74,9 +73,11 @@ def stylesheet(c: dict) -> str:
         border-radius: 12px; outline: none; alternate-background-color: {c['surface2']}; }}
     QListWidget::item {{ padding: 8px; border-radius: 8px; }}
     QListWidget::item:selected {{ background: {c['accent_soft']}; color: {c['text']}; }}
+    QTableWidget::item {{ padding: 0 12px 0 9px; }}  /* + Qt's 3px text margin = header's 12px */
     QTableWidget::item:selected {{ background: {c['accent_soft']}; color: {c['text']}; }}
     QHeaderView::section {{ background: {c['surface']}; color: {c['muted']}; border: none;
-        border-bottom: 1px solid {c['border']}; padding: 6px; font-size: 11px; font-weight: 600; }}
+        border-bottom: 1px solid {c['border']}; padding: 8px 12px; font-size: 11px;
+        font-weight: 600; }}
     QProgressBar {{ background: {c['surface2']}; border: none; border-radius: 3px;
                     max-height: 6px; min-height: 6px; }}
     QProgressBar::chunk {{ border-radius: 3px;
@@ -200,6 +201,7 @@ class MainWindow(QWidget):
                   self.progress, self.status):
             left.addWidget(w)
         left.addStretch(1)
+        left.setContentsMargins(0, 0, 0, 0)   # line the cards up with the title and tabs
         left_w = QWidget()
         left_w.setLayout(left)
         left_w.setFixedWidth(380)
@@ -207,18 +209,8 @@ class MainWindow(QWidget):
         self.hosts = QListWidget()
         self.hosts.setAccessibleName("Hosts")
         self.hosts.currentItemChanged.connect(lambda *_: self.show_ports())
-        self.table = QTableWidget(0, 5)
+        self.table = tabs.table(["PORT", "STATE", "SERVICE", "RISK", "BANNER"])
         self.table.setAccessibleName("Ports")
-        self.table.setHorizontalHeaderLabels(["PORT", "STATE", "SERVICE", "RISK", "BANNER"])
-        self.table.verticalHeader().hide()
-        self.table.setAlternatingRowColors(True)
-        self.table.setShowGrid(False)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        head = self.table.horizontalHeader()
-        for i in range(4):
-            head.setSectionResizeMode(i, QHeaderView.ResizeToContents)
-        head.setStretchLastSection(True)
         self.show_all = QCheckBox("Show closed and filtered ports")
         self.show_all.toggled.connect(self.show_ports)
         self.not_shown = QLabel(objectName="hint")
@@ -230,11 +222,6 @@ class MainWindow(QWidget):
         table_box = QWidget()
         tcol = QVBoxLayout(table_box)
         tcol.setContentsMargins(0, 0, 0, 0)
-        bar = QHBoxLayout()
-        bar.addWidget(self.show_all)
-        bar.addStretch(1)
-        bar.addWidget(self.export_btn)
-        tcol.addLayout(bar)
         tcol.addWidget(self.table, 1)
         tcol.addWidget(self.risk_note)
         tcol.addWidget(self.not_shown)
@@ -244,10 +231,17 @@ class MainWindow(QWidget):
         split.setSizes([260, 520])
 
         right = QVBoxLayout()
-        right.addWidget(QLabel("RESULTS", objectName="section"))
+        bar = QHBoxLayout()   # above both panes, so the host list and port table start level
+        bar.addWidget(QLabel("RESULTS", objectName="section"))
+        bar.addStretch(1)
+        bar.addWidget(self.show_all)
+        bar.addSpacing(12)
+        bar.addWidget(self.export_btn)
+        right.addLayout(bar)
         right.addWidget(split, 1)
 
         body = QHBoxLayout()
+        body.setContentsMargins(0, 12, 0, 0)   # same inset as the other tabs
         body.setSpacing(20)
         body.addWidget(left_w)
         body.addLayout(right, 1)

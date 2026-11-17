@@ -23,7 +23,8 @@ ATTRIBUTION = ("Country data: IP Geolocation by DB-IP (db-ip.com), CC BY 4.0. "
                "World map: @svg-maps/world, CC BY 4.0.")
 
 
-def table(headers: list[str]) -> QTableWidget:
+def table(headers: list[str], stretch: int = -1) -> QTableWidget:
+    """Read-only grid. Columns fit their contents; column `stretch` takes the spare width."""
     t = QTableWidget(0, len(headers))
     t.setHorizontalHeaderLabels(headers)
     t.verticalHeader().hide()
@@ -33,9 +34,8 @@ def table(headers: list[str]) -> QTableWidget:
     t.setSelectionBehavior(QAbstractItemView.SelectRows)
     head = t.horizontalHeader()
     head.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)   # line up with the left-aligned cells
-    for i in range(len(headers) - 1):
-        head.setSectionResizeMode(i, QHeaderView.ResizeToContents)
-    head.setStretchLastSection(True)
+    head.setSectionResizeMode(QHeaderView.ResizeToContents)
+    head.setSectionResizeMode(stretch % len(headers), QHeaderView.Stretch)
     return t
 
 
@@ -87,7 +87,7 @@ class ConnectionsTab(QWidget):
         self.listening = QCheckBox("Include listening ports")
         self.listening.toggled.connect(self.refresh)
         self.count = QLabel(objectName="hint")
-        self.table = table(self.COLUMNS)
+        self.table = table(self.COLUMNS, self.COLUMNS.index("DESTINATION"))
         self.table.setAccessibleName("Connections")
         self.table.setSortingEnabled(False)
         hint = QLabel("Live connections from this computer, refreshed every 2 seconds. "
@@ -101,6 +101,7 @@ class ConnectionsTab(QWidget):
         col.setContentsMargins(0, 12, 0, 0)
         col.addWidget(self.banner)
         bar = QHBoxLayout()
+        bar.setSpacing(16)
         bar.addWidget(self.filter, 1)
         bar.addWidget(self.listening)
         bar.addWidget(self.count)
@@ -179,14 +180,16 @@ class TimelineTab(QWidget):
         self.range.currentTextChanged.connect(self.refresh)
         self.program.currentTextChanged.connect(self.refresh)
         self.count = QLabel(objectName="hint")
-        self.table = table(self.COLUMNS)
+        self.table = table(self.COLUMNS, self.COLUMNS.index("DESTINATION"))
         self.table.setAccessibleName("Connection history")
 
         col = QVBoxLayout(self)
         col.setContentsMargins(0, 12, 0, 0)
         bar = QHBoxLayout()
+        bar.setSpacing(8)
         bar.addWidget(QLabel("Show"))
         bar.addWidget(self.range)
+        bar.addSpacing(16)   # separate the two label + box pairs
         bar.addWidget(QLabel("Program"))
         bar.addWidget(self.program)
         bar.addStretch(1)
@@ -257,7 +260,7 @@ class MapTab(QWidget):
         self.range = range_combo("Last 7 days")
         self.range.currentTextChanged.connect(self.refresh)
         self.map = WorldMap(c)
-        self.table = table(["COUNTRY", "DESTINATIONS"])
+        self.table = table(["COUNTRY", "DESTINATIONS"], 0)
         self.table.setAccessibleName("Destinations by country")
 
         split = QSplitter()
@@ -267,6 +270,7 @@ class MapTab(QWidget):
         col = QVBoxLayout(self)
         col.setContentsMargins(0, 12, 0, 0)
         bar = QHBoxLayout()
+        bar.setSpacing(8)
         bar.addWidget(QLabel("Show"))
         bar.addWidget(self.range)
         bar.addStretch(1)
