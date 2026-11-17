@@ -33,6 +33,17 @@ Destination names come from reverse DNS, which for cloud services often shows th
 - Country lookup: IP Geolocation by [DB-IP](https://db-ip.com), CC BY 4.0, bundled in `data/` (November 2026 edition). It is used offline only.
 - World map: [@svg-maps/world](https://www.npmjs.com/package/@svg-maps/world), CC BY 4.0 (see `data/world-map-LICENSE.md`).
 
+## Set up on a new computer
+Needs Windows 10 or 11, [Git](https://git-scm.com) and Python 3.10 or newer (tested with 3.13, 64-bit; tick "Add python.exe to PATH" when installing). No admin rights or settings are needed.
+```
+git clone https://github.com/anandmohan-root/PortScout.git
+cd PortScout
+python -m venv .venv
+.venv\Scripts\pip install -r requirements-dev.txt
+.venv\Scripts\pythonw.exe main.py
+```
+Don't copy `.venv`, `build` or `dist` from another computer; they only work where they were made. The pip step needs internet once. Connection history and the learned destinations stay on each computer, so a new one starts with its own 90-second learning period.
+
 ## Start it
 Run `.venv\Scripts\pythonw.exe main.py` in this folder, or make a desktop shortcut to it.
 
