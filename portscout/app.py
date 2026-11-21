@@ -279,6 +279,8 @@ class MainWindow(QWidget):
         self.tabs.addTab(self.connections, "Connections")
         self.tabs.addTab(tabs.TimelineTab(self.store), "Timeline")
         self.tabs.addTab(tabs.MapTab(self.c, self.store), "Map")
+        self.websites = tabs.WebsitesTab()
+        self.tabs.addTab(self.websites, "Websites")
         root.addWidget(self.tabs, 1)
 
         self.refresh = QTimer(self, interval=150)   # batch UI updates; probes arrive by the thousand
@@ -472,7 +474,7 @@ class MainWindow(QWidget):
                     cell.setForeground(QColor(risk_colors[r.severity]))
                     cell.setToolTip(r.risk)
                 self.table.setItem(i, col, cell)
-        self.table.resizeColumnsToContents()
+        tabs.fit_columns(self.table)
         self.risk_note.setText("\n".join(f"Port {r.port} ({r.severity}): {r.risk}"
                                          for r in rows if r.severity))
         hidden = defaultdict(int)
@@ -509,6 +511,7 @@ class MainWindow(QWidget):
             self.thread.wait()   # a capped wait let Qt destroy the still-running thread (crash)
         self.connections.timer.stop()
         self.connections.names.close()
+        self.websites.stop()
         super().closeEvent(e)
 
 

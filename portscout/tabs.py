@@ -1,18 +1,20 @@
-"""Connections, Timeline and Map tabs: this computer's own traffic."""
+"""Connections, Timeline and Map tabs (this computer's own traffic) and the Websites tab
+(sites each device on the Wi-Fi looks up)."""
 from __future__ import annotations
 
 import json
 import math
+import subprocess
 import time
 
 from PySide6.QtCore import QByteArray, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFrame, QHBoxLayout, QHeaderView,
-                               QLabel, QLineEdit, QPushButton, QSplitter, QTableWidget,
+                               QLabel, QLineEdit, QMessageBox, QPushButton, QSplitter, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
-from . import monitor
+from . import dnslog, monitor, scanner
 
 RANGES = {"Last hour": 3600, "Last 24 hours": 86400, "Last 7 days": monitor.KEEP_SECONDS}
 BASELINE_SECONDS = 90   # first run: everything seen in this window counts as normal
@@ -46,7 +48,16 @@ def fill(t: QTableWidget, rows: list[list[str]]):
     for i, row in enumerate(rows):
         for j, text in enumerate(row):
             t.setItem(i, j, QTableWidgetItem(str(text)))
-    t.resizeColumnsToContents()   # once per refresh; Qt samples at most 1000 rows
+    fit_columns(t)
+
+
+def fit_columns(t: QTableWidget):
+    """Size columns to their contents once per refresh (Qt samples at most 1000 rows), leaving the
+    stretch column alone: resizing it too cancels the stretch and leaves a gap on the right."""
+    head = t.horizontalHeader()
+    for i in range(t.columnCount()):
+        if head.sectionResizeMode(i) != QHeaderView.Stretch:
+            t.resizeColumnToContents(i)
 
 
 def country_label(cc: str) -> str:
@@ -291,3 +302,115 @@ class MapTab(QWidget):
         self.map.set_counts(counts)
         fill(self.table, [[country_label(cc), n]
                           for cc, n in sorted(counts.items(), key=lambda x: -x[1])])
+
+
+class WebsitesTab(QWidget):
+    """Sites each device on the Wi-Fi looks up, from PortScout acting as the network's DNS."""
+    COLUMNS = ["LAST SEEN", "DEVICE", "SITE", "LOOKUPS"]
+
+    def __init__(self):
+        super().__init__(objectName="page")
+        self.logger: dnslog.DnsLogger | None = None
+        self.db = dnslog.open_db()
+        self.vendors: dict[str, str] = {}
+        self.toggle = QPushButton("Start DNS logging", objectName="tool")
+        self.toggle.clicked.connect(self.start_stop)
+        self.range = range_combo("Last hour")
+        self.device = QComboBox()
+        self.device.setMinimumWidth(260)
+        self.range.currentTextChanged.connect(self.refresh)
+        self.device.currentTextChanged.connect(self.refresh)
+        self.count = QLabel(objectName="hint")
+        self.table = table(self.COLUMNS, self.COLUMNS.index("SITE"))
+        self.table.setAccessibleName("Sites looked up per device")
+        self.info = QLabel(objectName="hint", wordWrap=True)
+        self.info.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        col = QVBoxLayout(self)
+        col.setContentsMargins(0, 12, 0, 0)
+        bar = QHBoxLayout()
+        bar.setSpacing(8)
+        bar.addWidget(self.toggle)
+        bar.addSpacing(16)
+        bar.addWidget(QLabel("Show"))
+        bar.addWidget(self.range)
+        bar.addSpacing(16)
+        bar.addWidget(QLabel("Device"))
+        bar.addWidget(self.device)
+        bar.addStretch(1)
+        bar.addWidget(self.count)
+        col.addLayout(bar)
+        col.addWidget(self.table, 1)
+        col.addWidget(self.info)
+        self.timer = QTimer(self, interval=3000)
+        self.timer.timeout.connect(self.refresh)
+        self._info()
+
+    def _info(self, extra: str = ""):
+        if self.logger:
+            ip = self.logger.address
+            text = (f"<b>Logging on {ip}:53</b>, forwarding to the router {self.logger.upstream}. "
+                    f"In your router's DHCP/LAN settings set the DNS server to <b>{ip}</b> (and "
+                    f"reserve that address for this PC), then reconnect the devices to Wi-Fi. "
+                    "If Windows asks, allow PortScout on private networks. Devices lose internet "
+                    "while this PC is off or PortScout is closed, unless the router also lists a "
+                    "second DNS server.")
+        else:
+            text = ("Shows the sites each device on your Wi-Fi looks up, by making this PC the "
+                    "network's DNS server. Only site names are visible, not full web addresses or "
+                    "page contents; devices using private DNS are not seen.")
+        self.info.setText(text + (f"<br>{extra}" if extra else ""))
+
+    def start_stop(self):
+        if self.logger:
+            self.logger.stop()
+            self.logger = None
+            self.toggle.setText("Start DNS logging")
+            return self._info()
+        if QMessageBox.question(
+                self, "PortScout",
+                "DNS logging records which sites each device on your Wi-Fi looks up.\n\n"
+                "Only log devices you own, or whose users know and agree. Recording other "
+                "people's browsing without their knowledge can be illegal.\n\nStart logging?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        try:
+            router = dnslog.gateway()
+            self.logger = dnslog.DnsLogger(dnslog.lan_address(router), router)
+        except (OSError, subprocess.SubprocessError) as e:
+            return self._info(f"Could not start: {e}")
+        self.toggle.setText("Stop DNS logging")
+        self._info()
+
+    def stop(self):
+        if self.logger:
+            self.logger.stop()
+
+    def showEvent(self, e):
+        self.vendors = monitor.load_vendors()
+        self.timer.start()
+        self.refresh()
+        super().showEvent(e)
+
+    def hideEvent(self, e):
+        self.timer.stop()
+        super().hideEvent(e)
+
+    def describe(self, ip: str, mac: str) -> str:
+        bits = [monitor.vendor(self.vendors, mac), scanner.device_type(mac, "", set())]
+        return " · ".join([ip, *(b for b in bits if b)])
+
+    def refresh(self, *_):
+        since = time.time() - RANGES[self.range.currentText()]
+        picked = self.device.currentData()
+        rows = dnslog.summary(self.db, since, picked)
+        devices = {ip: mac for _, ip, mac, _, _ in dnslog.summary(self.db, since)}
+        self.device.blockSignals(True)
+        self.device.clear()
+        self.device.addItem("All devices", None)
+        for ip in sorted(devices, key=lambda a: tuple(int(p) for p in a.split("."))):
+            self.device.addItem(self.describe(ip, devices[ip]), ip)
+        self.device.setCurrentIndex(max(0, self.device.findData(picked)))
+        self.device.blockSignals(False)
+        fill(self.table, [[stamp(t), self.describe(ip, mac), s, n] for t, ip, mac, s, n in rows])
+        self.count.setText(f"{len(rows)} site(s) from {len({r[1] for r in rows})} device(s)")
